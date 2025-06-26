@@ -140,14 +140,13 @@ int halfStepSequence[8][4] = {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //                                 Variables
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-float temperature = 0;
-float humidity = 0;
-bool ledState = false;
-int baseline = 0; //Gas Smoke Sensor baseline
-int flamePercent = 0;
-int gasPercent = 0;
+float temperature = 0; //Suhu
+float humidity = 0; //Lembab
+bool ledState = false; //Led
+int baseline = 0; //Gas baseline
+int flamePercent = 0; //Api
+int gasPercent = 0; //Gas Percent
 // int currentStep = 0;
-// Variabel untuk animasi
 unsigned long lastUpdate = 0;
 int animationFrame = 0;
 unsigned long lastSensorRead = 0;
@@ -165,8 +164,9 @@ void setup() {
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
-  pinMode(LAMPU_PIN, OUTPUT);
-  pinMode(KIPAS_PIN, OUTPUT);    // Pastikan relay awalnya OFF
+  pinMode(LAMPU_PIN, OUTPUT);   // Pastikan relay awalnya OFF
+  digitalWrite(LAMPU_PIN, LOW);
+  pinMode(KIPAS_PIN, OUTPUT);   // Pastikan relay awalnya OFF
   digitalWrite(KIPAS_PIN, LOW);
   pinMode(PIR_PIN, INPUT);
 
@@ -269,14 +269,17 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
   String topicStr = String(topic);
 
+  //LAMPU
   if (topicStr == lampu_topic) {
     digitalWrite(LAMPU_PIN, state ? HIGH : LOW);
     Serial.println("Lampu turned " + String(state ? "ON" : "OFF"));
   } 
+  //KIPAS
   else if (topicStr == kipas_topic) {
     digitalWrite(KIPAS_PIN, state ? HIGH : LOW);
     Serial.println("Kipas turned " + String(state ? "ON" : "OFF"));
   } 
+  //LISTRIK
   else if (topicStr == listrik_topic) {
     digitalWrite(LAMPU_PIN, state ? HIGH : LOW);
     digitalWrite(KIPAS_PIN, state ? HIGH : LOW);
@@ -285,13 +288,14 @@ void callback(char* topic, byte* payload, unsigned int length) {
     // Publish ulang status ke lampu dan kipas topic agar sinkron
     publishLampuKipasState(state, state);
   }
+  //PIR
   else if (topicStr == pir_topic) {
     bool gerakanTerdeteksi = doc["state"];
     
     if (gerakanTerdeteksi) {
-      Serial.println("Gerakan terdeteksi dari MQTT! Menyalakan motor dan LED.");
-      digitalWrite(LAMPU_PIN, HIGH);   // Nyalakan LED lewat relay
-      aktifkanMotorStepper();              // Fungsi untuk nyalakan motor stepper
+        Serial.println("Gerakan terdeteksi dari MQTT! Menyalakan motor dan LED.");
+        digitalWrite(LAMPU_PIN, HIGH);   // Nyalakan LED lewat relay
+        aktifkanMotorStepper();              // Fungsi untuk nyalakan motor stepper
     } else {
         Serial.println("Tidak ada gerakan dari MQTT. Mematikan motor dan LED.");
         digitalWrite(LAMPU_PIN, LOW);    // Matikan LED lewat Relay
@@ -446,13 +450,16 @@ void reconnect() {
     if (connected) {
       Serial.println(" connected");
       client.subscribe(led_topic);
+      client.subscribe(pir_topic);
+      client.subscribe(sensor_topic);
+      client.subscribe(status_topic);
       client.subscribe(lampu_topic);
       client.subscribe(kipas_topic);
       client.subscribe(listrik_topic);
       publishStatusOnline();
       // Serial.println("Subscribed to: " + String(led_topic));
     } else {
-      Serial.print(" failed, rc=");
+      Serial.print(" failed, reconnect=");
       Serial.print(client.state());
       Serial.println(" retry in 5 seconds");
 
