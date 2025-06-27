@@ -8,17 +8,18 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Ticker.h>
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //                            WiFi Configuration
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-const char* ssid = "hasyim";
-const char* password = "bintangenam";
+const char* ssid = "Hasyim";
+const char* password = "m.barat23a";
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //                            MQTT Configuration
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-const char* mqtt_server = "192.168.124.245";
+const char* mqtt_server = "192.168.11.103";
 const int mqtt_port = 1883;
 const char* mqtt_client_id = "esp32_client";
 const char* mqtt_username = "uas25_hasyim";
@@ -29,6 +30,7 @@ const char* mqtt_password = "uas25_hasyim";
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 const char* led_topic = "esp32/led";
 const char* pir_topic = "esp32/pir";
+const char* pir_control_topic = "esp32/pir_control";
 const char* sensor_topic = "esp32/sensor";
 const char* status_topic = "esp32/status";
 const char* lampu_topic = "esp32/lampu";
@@ -38,9 +40,9 @@ const char* listrik_topic = "esp32/listrik";
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //              Pin Configuration (gunakan GPIO number langsung)
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#define LED_PIN 2       // GPIO2, LED built-in pada beberapa board
-#define PIR_PIN 18
-#define FLAME_PIN 34
+// #define LED_PIN 2       // GPIO2, LED built-in pada beberapa board
+#define PIR_PIN 2
+#define FLAME_PIN 34      // GPIO36-39 for Analog ADC, LED built-in pada beberapa board
 #define GASSMOKE_PIN 35
 #define DHT_PIN 4
 #define DHT_TYPE DHT11
@@ -50,6 +52,7 @@ const char* listrik_topic = "esp32/listrik";
 #define IN2 27
 #define IN3 26
 #define IN4 25
+Ticker stepperTicker;
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -140,13 +143,18 @@ int halfStepSequence[8][4] = {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //                                 Variables
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+bool pirEnabled = true;
 float temperature = 0; //Suhu
 float humidity = 0; //Lembab
 bool ledState = false; //Led
+bool kipasState = false;
 int baseline = 0; //Gas baseline
 int flamePercent = 0; //Api
-int gasPercent = 0; //Gas Percent
-// int currentStep = 0;
+int gasPercent = 0; //Gas Percentbool
+int pirState = LOW;
+
+int stepperIndex = 0;
+bool stepperAktif = false;
 unsigned long lastUpdate = 0;
 int animationFrame = 0;
 unsigned long lastSensorRead = 0;
@@ -162,8 +170,8 @@ void setup() {
   Serial.begin(115200);
   delay(10);
 
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  // pinMode(LED_PIN, OUTPUT);
+  // digitalWrite(LED_PIN, LOW);
   pinMode(LAMPU_PIN, OUTPUT);   // Pastikan relay awalnya OFF
   digitalWrite(LAMPU_PIN, LOW);
   pinMode(KIPAS_PIN, OUTPUT);   // Pastikan relay awalnya OFF
@@ -176,6 +184,8 @@ void setup() {
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
 
+  // Jalankan fungsi stepperStep setiap 2ms
+  stepperTicker.attach_ms(1, stepperStep);
 
   dht.begin();
   startTime = millis();
@@ -276,7 +286,15 @@ void callback(char* topic, byte* payload, unsigned int length) {
   } 
   //KIPAS
   else if (topicStr == kipas_topic) {
-    digitalWrite(KIPAS_PIN, state ? HIGH : LOW);
+    // digitalWrite(KIPAS_PIN, state ? HIGH : LOW);
+    kipasState = state;
+    if (kipasState) {
+      // aktifkanMotorStepper();
+      Serial.println("Kipas (motor) dinyalakan via MQTT");
+    } else {
+      // matikanMotorStepper();
+      Serial.println("Kipas (motor) dimatikan via MQTT");
+    }
     Serial.println("Kipas turned " + String(state ? "ON" : "OFF"));
   } 
   //LISTRIK
@@ -294,13 +312,21 @@ void callback(char* topic, byte* payload, unsigned int length) {
     
     if (gerakanTerdeteksi) {
         Serial.println("Gerakan terdeteksi dari MQTT! Menyalakan motor dan LED.");
-        digitalWrite(LAMPU_PIN, HIGH);   // Nyalakan LED lewat relay
-        aktifkanMotorStepper();              // Fungsi untuk nyalakan motor stepper
+        digitalWrite(LAMPU_PIN, HIGH);  // Nyalakan LED lewat relay
+        stepperAktif = true;
+        // aktifkanMotorStepper();              // Fungsi untuk nyalakan motor stepper
     } else {
         Serial.println("Tidak ada gerakan dari MQTT. Mematikan motor dan LED.");
         digitalWrite(LAMPU_PIN, LOW);    // Matikan LED lewat Relay
-        matikanMotorStepper();               // Fungsi untuk matikan motor
+        stepperAktif = false;
+        // matikanMotorStepper();               // Fungsi untuk matikan motor
     }
+  }
+  //PIR - Controller
+  else if (topicStr == pir_control_topic) {
+    bool enable = doc["enabled"];
+    pirEnabled = enable;
+    Serial.println("PIR Sensor " + String(enable ? "Enabled" : "Disabled"));
   }
 }
 
@@ -328,7 +354,7 @@ void publishLampuKipasState(bool lampuState, bool kipasState) {
 //                     Fungsi Publish Data Sensor ESP32()
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 void publishSensorData() {
-  int pirState = digitalRead(PIR_PIN);
+  bool pirState = digitalRead(PIR_PIN);
   int flameValue = analogRead(FLAME_PIN); // 0–4095
   int gasValue = analogRead(GASSMOKE_PIN);
   float temperature = dht.readTemperature();
@@ -376,7 +402,8 @@ void publishSensorData() {
   DynamicJsonDocument doc(512);
   doc["temperature"] = temperature;
   doc["humidity"] = humidity;
-  doc["pir"] = (pirState == HIGH) ? "Gerakan Terdeteksi" : "Tidak Ada Gerakan";
+  //doc["pir"] = (pirState == HIGH) ? "Gerakan Terdeteksi" : "Tidak Ada Gerakan";
+  doc["pir"] = pirEnabled ? (pirState == HIGH ? "Terdeteksi" : "Tidak Ada") : "PIR Nonaktif";
   doc["flame_percent"] = flamePercent;
   doc["gas_percent"] = gasPercent;
   doc["flame_status"] = fireStatus;
@@ -451,6 +478,7 @@ void reconnect() {
       Serial.println(" connected");
       client.subscribe(led_topic);
       client.subscribe(pir_topic);
+      client.subscribe(pir_control_topic);
       client.subscribe(sensor_topic);
       client.subscribe(status_topic);
       client.subscribe(lampu_topic);
@@ -468,43 +496,36 @@ void reconnect() {
   }
 }
 
+void stepperStep() {
+  if (!stepperAktif) return;
+
+  digitalWrite(IN1, halfStepSequence[stepperIndex][0]);
+  digitalWrite(IN2, halfStepSequence[stepperIndex][1]);
+  digitalWrite(IN3, halfStepSequence[stepperIndex][2]);
+  digitalWrite(IN4, halfStepSequence[stepperIndex][3]);
+
+  stepperIndex = (stepperIndex + 1) % 8;
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //                      Fungsi Mengaktifkan Motor Stepper()
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-void aktifkanMotorStepper() {
-  digitalWrite(KIPAS_PIN, HIGH); // Nyalakan relay
-  Serial.println("Motor Aktif");
-
-  // Lakukan 1 putaran penuh (512 half-step untuk 28BYJ-48)
-  for (int i = 0; i < 512; i++) {
-    for (int step = 0; step < 8; step++) {
-      digitalWrite(IN1, halfStepSequence[step][0]);
-      digitalWrite(IN2, halfStepSequence[step][1]);
-      digitalWrite(IN3, halfStepSequence[step][2]);
-      digitalWrite(IN4, halfStepSequence[step][3]);
-      delay(1); // Sesuaikan kecepatan rotasi
-    }
-  }
-
-  // Matikan motor setelah putaran
-  // digitalWrite(IN1, LOW);
-  // digitalWrite(IN2, LOW);
-  // digitalWrite(IN3, LOW);
-  // digitalWrite(IN4, LOW);
-  // Serial.println("Motor Selesai 1 Putaran");
-}
+// void aktifkanMotorStepper() {
+//   digitalWrite(KIPAS_PIN, HIGH); // Nyalakan relay
+//   Serial.println("Motor Aktif");
+// }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //                      Fungsi Mematikan Motor Stepper()
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-void matikanMotorStepper() {
-  digitalWrite(KIPAS_PIN, LOW); // Matikan relay
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, LOW);
-  Serial.println("Motor OFF");
-}
+// void matikanMotorStepper() {
+//   digitalWrite(KIPAS_PIN, LOW); // Matikan relay
+//   digitalWrite(IN1, LOW);
+//   digitalWrite(IN2, LOW);
+//   digitalWrite(IN3, LOW);
+//   digitalWrite(IN4, LOW);
+//   Serial.println("Motor OFF");
+// }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //           Fungsi SplashScreen Singkat Tampilan pada OLED Display()
@@ -706,12 +727,29 @@ void loop() {
   // Deteksi PIR dan Motor Stepper (Kipas Angin)
   bool gerakan = digitalRead(PIR_PIN);
 
-  if (gerakan) {
-    Serial.println("Gerakan Terdeteksi dari PIR (loop)!");
-    aktifkanMotorStepper();
+  if (kipasState) {
+        Serial.println("Gerakan Terdeteksi dari PIR (loop)!");
+        stepperAktif = true;
+        digitalWrite(KIPAS_PIN, HIGH);
   } else {
-    matikanMotorStepper();
+        stepperAktif = false;
+        digitalWrite(KIPAS_PIN, LOW);
+        digitalWrite(IN1, LOW);
+        digitalWrite(IN2, LOW);
+        digitalWrite(IN3, LOW);
+        digitalWrite(IN4, LOW);
   }
+  //  else if (kipasState) {  // Jalankan motor stepper jika kipasState true
+  //   stepperAktif = true;
+  //   digitalWrite(KIPAS_PIN, HIGH);
+  // } else {
+  //   stepperAktif = false;
+  //   digitalWrite(KIPAS_PIN, LOW);
+  //   digitalWrite(IN1, LOW);
+  //   digitalWrite(IN2, LOW);
+  //   digitalWrite(IN3, LOW);
+  //   digitalWrite(IN4, LOW);
+  // }
 
   // Update animasi setiap 500ms
   if (millis() - lastUpdate > 500) {
@@ -721,5 +759,5 @@ void loop() {
 
   // Tampilkan layout modern
   displayModernLayout();
-  delay(100); // Delay kecil agar tidak spam dan CPU tidak 100%
+  // delay(100); // Delay kecil agar tidak spam dan CPU tidak 100%
 }
