@@ -30,6 +30,7 @@ const char* mqtt_password = "uas25_hasyim";
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 const char* led_topic = "esp32/led";
 const char* pir_topic = "esp32/pir";
+const char* pir_status = "esp32/pir_status";
 const char* pir_control_topic = "esp32/pir_control";
 const char* sensor_topic = "esp32/sensor";
 const char* status_topic = "esp32/status";
@@ -144,6 +145,7 @@ int halfStepSequence[8][4] = {
 //                                 Variables
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 bool pirEnabled = true;
+bool lastPirStatus = false;
 float temperature = 0; //Suhu
 float humidity = 0; //Lembab
 bool ledState = false; //Led
@@ -748,6 +750,23 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi connection lost! Reconnecting...");
     setup_wifi();
+  }
+
+  bool pirStatus = digitalRead(PIR_PIN);
+
+  if (pirEnabled) {
+    String pirMessage = pirStatus ? "Terdeteksi" : "Tidak Ada";
+
+    // Hanya kirim jika status berubah atau secara berkala (opsional)
+    if (pirStatus != lastPirStatus) {
+      lastPirStatus = pirStatus;
+
+      String jsonStr = "{\"status\": \"" + pirMessage + "\"}";
+      client.publish("esp32/pir_status", jsonStr.c_str());
+    }
+  } else {
+    String jsonStr = "{\"status\": \"PIR Nonaktif\"}";
+    client.publish("esp32/pir_status", jsonStr.c_str());
   }
 
   // Deteksi PIR dan Motor Stepper (Kipas Angin)
