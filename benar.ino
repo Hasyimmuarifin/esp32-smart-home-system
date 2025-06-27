@@ -769,12 +769,10 @@ void loop() {
       publishStateJSON(kipas_topic, true);
       publishStateJSON(listrik_topic, true);
       Serial.println("Gerakan terdeteksi → Kirim JSON true ke lampu, kipas, listrik");
-    } else {
-      publishStateJSON(lampu_topic, false);
-      publishStateJSON(kipas_topic, false);
-      publishStateJSON(listrik_topic, false);
     }
   }
+
+
 
   // Update animasi setiap 500ms
   if (millis() - lastUpdate > 500) {
