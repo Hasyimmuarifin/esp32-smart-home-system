@@ -13,13 +13,13 @@
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //                            WiFi Configuration
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-const char* ssid = "Hasyim";
-const char* password = "m.barat23a";
+const char* ssid = "OPPO A54";
+const char* password = "123456789";
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //                            MQTT Configuration
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-const char* mqtt_server = "192.168.11.103";
+const char* mqtt_server = "192.168.43.190";
 const int mqtt_port = 1883;
 const char* mqtt_client_id = "esp32_client";
 const char* mqtt_username = "uas25_hasyim";
@@ -218,13 +218,13 @@ void setup() {
 
   delay(60000); // Pemanasan 60 detik
 
-  // Ambil baseline udara bersih
-  long total = 0;
-  for (int i = 0; i < 100; i++) {
-    total += analogRead(GASSMOKE_PIN);
-    delay(10);
-  }
-  baseline = total / 100;
+  // // Ambil baseline udara bersih
+  // long total = 0;
+  // for (int i = 0; i < 100; i++) {
+  //   total += analogRead(GASSMOKE_PIN);
+  //   delay(10);
+  // }
+  // baseline = total / 100;
 
   Serial.print("Baseline udara bersih: ");
   Serial.println(baseline);
@@ -330,7 +330,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
         digitalWrite(LAMPU_PIN, HIGH);  // Nyalakan LED lewat relay
         stepperAktif = true;
         digitalWrite(KIPAS_PIN, HIGH);  // Nyalakan Kipas lewat relay
-        // aktifkanMotorStepper();              // Fungsi untuk nyalakan motor stepper
     } else {
         Serial.println("Tidak ada gerakan dari MQTT. Mematikan motor dan LED.");
         digitalWrite(LAMPU_PIN, LOW);    // Matikan LED lewat Relay
@@ -340,7 +339,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
         digitalWrite(IN2, LOW);
         digitalWrite(IN3, LOW);
         digitalWrite(IN4, LOW);
-        // matikanMotorStepper();               // Fungsi untuk matikan motor
     }
   }
   //PIR - Controller
@@ -401,11 +399,11 @@ void publishSensorData() {
   float humidity = dht.readHumidity();
 
   // Ubah ke skala 0–100% (semakin kecil nilai, semakin kuat api)
-  int flamePercent = map(flameValue, 4095, 1800, 0, 100);
+  int flamePercent = map(flameValue, 4095, 2000, 0, 100);
   flamePercent = constrain(flamePercent, 0, 100); // Batas aman
 
   // Ubah ke skala 0–100%
-  gasPercent = map(gasValue, 10, 400, 0, 100); // asumsi nilai normal 300–1200
+  gasPercent = map(gasValue, 500, 900, 0, 100); // asumsi nilai normal 300–1200
   gasPercent = constrain(gasPercent, 0, 100);
 
   if (isnan(temperature) || isnan(humidity)) {
@@ -432,7 +430,7 @@ void publishSensorData() {
   // Status Gas (berdasarkan gasPercent)
   String gasStatus;
   int baseline = 0; // contoh baseline, sesuaikan jika dibaca dari sensor
-  if (gasValue > baseline + 200) {
+  if (gasValue > baseline + 750) {
     gasStatus = "BOCOR";
   } else {
     gasStatus = "NORMAL";
@@ -624,6 +622,8 @@ void drawTempHumiditySection() {
   // === TEMPERATURE (Kiri) ===
   // Ikon temperature 16x16 (geser kebawah untuk menghindari area kuning)
   display.drawBitmap(4, 16, tempIcon_16x16, 16, 16, SSD1306_WHITE);
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
 
   // Nilai suhu dengan font besar di samping ikon
   display.setTextSize(1.5);
@@ -657,10 +657,12 @@ void drawTempHumiditySection() {
 void drawFireGasSection() {
   // Ikon api 16x16 (di area biru)
   display.drawBitmap(2, 38, fireIcon_16x16, 16, 16, SSD1306_WHITE);
+  int flameValue = analogRead(FLAME_PIN); // 0–4095
+  // delay(2000);
 
-  // // Status Api (dari flameLevel → intensity)
-  // int fireIntensity = map(fireLevel * 10, 1000, 1800, 100, 0); // konversi 1000–1800 ke 100–0
-  // fireIntensity = constrain(fireIntensity, 0, 100);
+  // // Status Api (dari flameLevel → percent)
+  int flamePercent = map(flameValue, 4095, 2000, 0, 100);
+  flamePercent = constrain(flamePercent, 0, 100); // Batas aman
   
   // Status Api (berdasarkan firePercent)
   String fireStatus;
@@ -674,8 +676,8 @@ void drawFireGasSection() {
 
   // Status Gas (berdasarkan gasPercent)
   String gasStatus;
-  int baseline = 400; // contoh baseline, sesuaikan jika dibaca dari sensor
-  if ((gasPercent * 10) > baseline + 300) {
+  int baseline = 0; // contoh baseline, sesuaikan jika dibaca dari sensor
+  if ((gasPercent * 10) > baseline + 750) {
     gasStatus = "BOCOR";
   } else {
     gasStatus = "NORMAL";
@@ -688,16 +690,12 @@ void drawFireGasSection() {
   display.print(flamePercent);
   display.print(F("% "));
   display.println(fireStatus);
-  // display.print(fireLevel, 1);
-  // display.print(F("%"));
 
   display.setCursor(22, 50);
   display.print(F("Gas: "));
   display.print(gasPercent);
   display.print(F("% "));
   display.println(gasStatus);
-  // display.print(gasLevel, 1);
-  // display.print(F("%"));
 
 }
 
